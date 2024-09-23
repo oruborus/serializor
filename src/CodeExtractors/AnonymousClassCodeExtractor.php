@@ -5,12 +5,20 @@ declare(strict_types=1);
 namespace Serializor\CodeExtractors;
 
 use PhpParser\Node;
+use PhpParser\Node\ComplexType;
 use PhpParser\Node\Expr\New_;
+use PhpParser\Node\Identifier;
+use PhpParser\Node\IntersectionType;
+use PhpParser\Node\Name;
+use PhpParser\Node\NullableType;
 use PhpParser\Node\PropertyItem;
 use PhpParser\Node\Stmt;
 use PhpParser\Node\Stmt\Class_;
 use PhpParser\Node\Stmt\ClassMethod;
+use PhpParser\Node\Stmt\Namespace_;
 use PhpParser\Node\Stmt\Property;
+use PhpParser\Node\Stmt\Use_;
+use PhpParser\Node\UnionType;
 use PhpParser\NodeTraverser;
 use PhpParser\NodeVisitor;
 use PhpParser\NodeVisitorAbstract;
@@ -49,6 +57,11 @@ final class AnonymousClassVisitor extends NodeVisitorAbstract
     /** @var Property[] $promotedProperties */
     private array $promotedProperties = [];
 
+    private ?Namespace_ $namespace = null;
+
+    /** @var Use_[] $useStatements */
+    private array $useStatements = [];
+
     /** @param string[] $memberNamesToDiscard */
     public function __construct(
         private ReflectionObject $reflection,
@@ -57,6 +70,14 @@ final class AnonymousClassVisitor extends NodeVisitorAbstract
 
     public function enterNode(Node $node)
     {
+        if ($node instanceof Namespace_) {
+            $this->namespace = $node;
+        }
+
+        if ($node instanceof Use_) {
+            $this->useStatements[] = $node;
+        }
+
         if (
             $node instanceof New_
             && $node->class instanceof Class_
@@ -69,9 +90,23 @@ final class AnonymousClassVisitor extends NodeVisitorAbstract
                 if ($this->anonymousClassNode !== null) {
                     throw new RuntimeException('Class node was already identified');
                 }
+
+                $node->class->extends = $this->fullyQualifyName($node->class->extends);
+                foreach ($node->class->implements as &$implements) {
+                    $implements = $this->fullyQualifyName($implements);
+                }
+
                 $this->anonymousClassNode = $node->class;
             }
         }
+
+        if (
+            $this->anonymousClassNode !== null
+            && $node instanceof Property
+        ) {
+            $node->type = $this->fullyQualifyType($node->type);
+        }
+
         if (
             $this->anonymousClassNode !== null
             && $node instanceof ClassMethod
@@ -88,7 +123,7 @@ final class AnonymousClassVisitor extends NodeVisitorAbstract
                         props: [
                             new PropertyItem($param->var->name)
                         ],
-                        type: $param->type,
+                        type: $this->fullyQualifyType($param->type),
                     );
                     $this->promotedProperties[] = $property;
                 }
@@ -96,6 +131,62 @@ final class AnonymousClassVisitor extends NodeVisitorAbstract
 
             return NodeVisitor::REMOVE_NODE;
         }
+    }
+
+    private function fullyQualifyType(null|Identifier|Name|UnionType|IntersectionType|NullableType $type): null|Identifier|Name|ComplexType
+    {
+        if ($type === null || $type instanceof Identifier) {
+            return $type;
+        }
+
+        if ($type instanceof Name) {
+            return $this->fullyQualifyName($type);
+        }
+
+        if ($type instanceof NullableType) {
+            $type->type = $this->fullyQualifyType($type->type);
+
+            return $type;
+        }
+
+        foreach ($type->types as &$subType) {
+            $subType = $this->fullyQualifyType($subType);
+        }
+
+        return $type;
+    }
+
+    private function fullyQualifyName(?Name $name): ?Name
+    {
+        if ($name === null || $name->isQualified()) {
+            return $name;
+        }
+
+        return new Name($this->findFullName((string) $name), $name->getAttributes());
+    }
+
+    private function findFullName(string $name): string
+    {
+        foreach ($this->useStatements as $useStatement) {
+            foreach ($useStatement->uses as $uses) {
+                if ((string) $uses->alias === $name) {
+                    return "\\{$uses->name}";
+                }
+
+                if ((string) $uses->name === $name) {
+                    return (string) $uses->name;
+                }
+            }
+        }
+
+        if ($this->namespace) {
+            $namespace = (string) $this->namespace->name;
+
+            return "\\{$namespace}\\{$name}";
+        }
+
+
+        return $name;
     }
 
     public function leaveNode(Node $node)
