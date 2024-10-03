@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Tests;
 
-use Serializor\Codec;
 use Serializor\Serializor;
 
 use function get_debug_type;
@@ -46,7 +45,7 @@ expect()->extend('toBeCode', function ($expected) {
 */
 
 expect()->extend('toEqualAfterSerializeAndUnserialize', function (): static {
-    $codec = new Codec('');
+    $codec = Serializor::getInstance();
 
     $serialized = $codec->serialize($this->value);
     $actual     = $codec->unserialize($serialized);

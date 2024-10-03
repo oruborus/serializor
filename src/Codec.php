@@ -21,27 +21,11 @@ use WeakMap;
  */
 final class Codec
 {
-
-    /**
-     * Transformer implementations are used to serialize classes
-     * whenever normal serialization fails.
-     *
-     * @var Transformer[]
-     */
-    private array $transformers = [];
-
-    /**
-     * The secret key used to sign serialized values and validate
-     * the signatures before unserialization. The secret should be
-     * provided via the constructor if possible.
-     */
-    private string $secret;
-
     /**
      * Tracks the original value of a reference, for comparison and
      * detection of bugs in the serialization process.
      *
-     * @var array<string,mixed>
+     * @var array<string,mixed> $referenceSources
      */
     private array $referenceSources = [];
 
@@ -49,7 +33,7 @@ final class Codec
      * Tracks the new value of a reference so that the new value is
      * correctly reused in future references.
      *
-     * @var array<string,mixed>
+     * @var array<string,mixed> $referenceTargets
      */
     private array $referenceTargets = [];
 
@@ -57,35 +41,20 @@ final class Codec
      * Callbacks that should be invoked when a reference has been completely
      * restored/transformed - to handle recursive serialization.
      *
-     * @var array<string,Closure[]>
+     * @var array<string,Closure[]> $referenceCallbacks
      */
     private array $referenceCallbacks = [];
 
     private array $shortcuts = [];
 
-    /**
-     * @var WeakMap<object,object>
-     */
+    /** @var WeakMap<object,object> $encodedObjects */
     private WeakMap $encodedObjects;
 
-    /**
-     * @param string|null $secret       A string secret which is shared among applications serializing and unserializing
-     * @param array|null  $transformers Custom set of transformers (overrides the default transformers)
-     *
-     * @return void
-     *
-     * @throws SerializerError if unable to automatically detect a secret
-     */
-    public function __construct(?string $secret = null, ?array $transformers = null)
-    {
-        if ($secret !== null) {
-            $this->secret = $secret;
-        } else {
-            $this->secret = Serializor::getMachineSecret();
-        }
-        foreach ($transformers ?? Serializor::getDefaultTransformers() as $transformer) {
-            $this->addTransformer($transformer);
-        }
+    /** @param Transformer[] $transformers */
+    public function __construct(
+        private string $secret,
+        private array $transformers,
+    ) {
         $this->encodedObjects = new WeakMap();
     }
 
@@ -101,8 +70,6 @@ final class Codec
     /**
      * Get the transformer instance that is willing to serialize the
      * value.
-     *
-     * @var class-string<mixed>|mixed
      */
     private function getTransformer(mixed $value): ?Transformer
     {
@@ -246,22 +213,22 @@ final class Codec
             $target->p = &$this->transform($target->p, $path, 'p');
 
             return $target;
-        } else {
-            /**
-             * There is no transformer for the value, so we attempt
-             * to directly create a Stasis instance from the target
-             * object.
-             */
-            $target = Stasis::from($source);
-            $this->shortcuts[] = &$target;
-            if (\is_object($source)) {
-                $this->encodedObjects[$source] = $target;
-            }
-            $this->referenceTargets[$referenceId] = &$target;
-            $target->p = &$this->transform($target->p, $path, 'p');
-
-            return $target;
         }
+
+        /**
+         * There is no transformer for the value, so we attempt
+         * to directly create a Stasis instance from the target
+         * object.
+         */
+        $target = Stasis::from($source);
+        $this->shortcuts[] = &$target;
+        if (\is_object($source)) {
+            $this->encodedObjects[$source] = $target;
+        }
+        $this->referenceTargets[$referenceId] = &$target;
+        $target->p = &$this->transform($target->p, $path, 'p');
+
+        return $target;
     }
 
     /**

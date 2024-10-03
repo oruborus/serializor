@@ -91,7 +91,7 @@ final class UnsignedSerializableClosure
     public static function getSerializor(): Codec
     {
         if (self::$serializor === null) {
-            self::$serializor = new Codec('');
+            self::$serializor = new Codec('', Serializor::getDefaultTransformers());
         }
         return self::$serializor;
     }

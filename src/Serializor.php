@@ -12,6 +12,7 @@ use Serializor\SecretGenerators\SecretGenerationException;
 use Serializor\SecretGenerators\SecretGeneratorFactory;
 use Serializor\Transformers\AnonymousClassTransformer;
 use Serializor\Transformers\ClosureTransformer;
+use Serializor\Transformers\Transformer;
 
 use function sys_get_temp_dir;
 
@@ -35,16 +36,16 @@ final class Serializor
      */
     private static ?Codec $singleton = null;
 
-    /** @var string|null The default secret key used for serialization security */
-    private static ?string $defaultSecret = null;
+    /** @var string The default secret key used for serialization security */
+    private static string $defaultSecret = '';
 
-    /** @var array Default transformers for serializing closures and anonymous classes */
+    /** @var Transformer[] Default transformers for serializing closures and anonymous classes */
     private static array $defaultTransformers = [];
 
-    /** @var Closure|null Custom function for transforming variables used in closures */
+    /** @var ?Closure(array<string, mixed>):array<string, mixed> Custom function for transforming variables used in closures */
     private static ?Closure $transformUseVarsFunc = null;
 
-    /** @var Closure|null Custom function for resolving variables used in closures */
+    /** @var ?Closure(array<string, mixed>):array<string, mixed> Custom function for resolving variables used in closures */
     private static ?Closure $resolveUseVarsFunc = null;
 
     /**
@@ -81,10 +82,8 @@ final class Serializor
      */
     public static function getInstance(): Codec
     {
-        if (self::$singleton === null) {
-            self::$singleton = new Codec();
-        }
-        return self::$singleton;
+        return self::$singleton
+            ??= new Codec(static::getMachineSecret(), static::getDefaultTransformers());
     }
 
     /**
@@ -102,7 +101,7 @@ final class Serializor
     /**
      * Sets a custom closure to transform variables used in closures.
      *
-     * @param Closure|null $transformUseVarsFunc The custom transformation function
+     * @param ?Closure(array<string, mixed>):array<string, mixed> $transformUseVarsFunc The custom transformation function
      */
     public static function setTransformUseVarsFunc(?Closure $transformUseVarsFunc = null): void
     {
@@ -113,7 +112,7 @@ final class Serializor
     /**
      * Sets a custom closure to resolve variables used in closures.
      *
-     * @param Closure|null $resolveUseVarsFunc The custom resolution function
+     * @param ?Closure(array<string, mixed>):array<string, mixed> $resolveUseVarsFunc The custom resolution function
      */
     public static function setResolveUseVarsFunc(?Closure $resolveUseVarsFunc = null): void
     {
@@ -125,7 +124,7 @@ final class Serializor
      * Returns the default set of transformers used for serializing closures
      * and anonymous classes.
      *
-     * @return array The default transformers
+     * @return Transformer[] The default transformers
      */
     public static function getDefaultTransformers(): array
     {
@@ -145,7 +144,7 @@ final class Serializor
      */
     private static function updateSingleton(): void
     {
-        self::$singleton = new Codec(self::$defaultSecret);
+        self::$singleton = new Codec(static::$defaultSecret, static::getDefaultTransformers());
     }
 
     /**
